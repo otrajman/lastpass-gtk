@@ -13,13 +13,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30   # fail fast if a package mirror stalls
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           submodules: recursive
 
       - name: Build container
-        run: docker build --pull -t lastpass-gtk-build packaging  # --pull: latest patched base image
+        # --pull: latest patched base image; Azure mirror: much faster from GitHub runners
+        run: >-
+          docker build --pull -t lastpass-gtk-build
+          --build-arg UBUNTU_MIRROR=http://azure.archive.ubuntu.com/ubuntu/ packaging
 
       - name: Tests (real lastpass-cli code against its mock server)
         run: |
