@@ -1,0 +1,22 @@
+diff --git a/password.c b/password.c
+index eea4511..2ff450b 100644
+--- a/password.c
++++ b/password.c
+@@ -55,7 +55,6 @@ static char *password_prompt_askpass(const char *askpass, const char *prompt, co
+ 	FILE *output;
+ 	char *password = NULL, *lastlf;
+ 	size_t len;
+-	UNUSED(error);
+ 	UNUSED(descfmt);
+ 	UNUSED(params);
+ 
+@@ -73,7 +72,8 @@ static char *password_prompt_askpass(const char *askpass, const char *prompt, co
+ 		close(read_fds[1]);
+ 		close(write_fds[0]);
+ 		close(write_fds[1]);
+-		execlp(askpass, "lpass-askpass", prompt, NULL);
++		/* Extra arg: why the previous attempt failed (askpass helpers may ignore it). */
++		execlp(askpass, "lpass-askpass", prompt, error ? error : "", NULL);
+ 		_exit(76);
+ 	}
+ 	close(read_fds[1]);

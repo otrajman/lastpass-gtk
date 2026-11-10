@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.otrajman.LastPassGtk</id>
+  <name>LastPass GTK</name>
+  <summary>Unofficial desktop client for your LastPass vault</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <developer id="io.github.otrajman">
+    <name>otrajman</name>
+  </developer>
+  <description>
+    <p>
+      A native GNOME (GTK 4 and libadwaita) front end for the official LastPass
+      command-line client, lastpass-cli. Browse, search, copy, add and edit
+      sites and secure notes. All vault encryption and server communication is
+      handled by lastpass-cli. Not affiliated with LastPass.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.otrajman.LastPassGtk.desktop</launchable>
+  <url type="homepage">https://github.com/otrajman/lastpass-gtk</url>
+  <url type="bugtracker">https://github.com/otrajman/lastpass-gtk/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-10"/>
+  </releases>
+</component>

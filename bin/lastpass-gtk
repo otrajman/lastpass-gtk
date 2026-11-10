@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run LastPass GTK from this checkout (or from an install made by install.sh).
+here="$(dirname "$(readlink -f "$0")")"
+export PYTHONPATH="$here/..${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -P -m lastpass_gtk "$@"

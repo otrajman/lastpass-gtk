@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=LastPass GTK
+GenericName=Password Manager
+Comment=Unofficial desktop client for your LastPass vault
+Exec=lastpass-gtk
+Icon=io.github.otrajman.LastPassGtk
+Terminal=false
+Categories=Utility;Security;System;GTK;
+Keywords=password;vault;lastpass;login;
+StartupNotify=true
+StartupWMClass=io.github.otrajman.LastPassGtk

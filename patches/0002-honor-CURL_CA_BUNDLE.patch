@@ -1,0 +1,14 @@
+diff --git a/http.c b/http.c
+index 0be31a9..fc3f58b 100644
+--- a/http.c
++++ b/http.c
+@@ -229,6 +229,9 @@ char *http_post_lastpass_v_noexit(const char *server, const char *page, const st
+ #else
+ 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2);
+ 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1);
++	/* Let relocatable builds (e.g. AppImage) point at the host's CA bundle. */
++	if (getenv("CURL_CA_BUNDLE") && *getenv("CURL_CA_BUNDLE"))
++		curl_easy_setopt(curl, CURLOPT_CAINFO, getenv("CURL_CA_BUNDLE"));
+ #endif
+ 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+ 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);

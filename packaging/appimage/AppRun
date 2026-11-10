@@ -1,0 +1,58 @@
+#!/bin/sh
+# AppImage entry point: run the bundled Python/GTK stack. Libraries are found via
+# RUNPATH (see deploy_libs.py), so no LD_LIBRARY_PATH is set.
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Remember what we override so the app can hand the user's own environment to
+# processes it launches (e.g. the web browser). See host_environment() in app.py.
+for v in LD_LIBRARY_PATH PYTHONHOME PYTHONPATH PYTHONDONTWRITEBYTECODE GI_TYPELIB_PATH GDK_PIXBUF_MODULE_FILE \
+         GSETTINGS_SCHEMA_DIR GIO_MODULE_DIR XDG_DATA_DIRS CURL_CA_BUNDLE PATH; do
+    eval "if [ -n \"\${$v+x}\" ]; then export LPGTK_ORIG_$v=\"\$$v\"; else export LPGTK_ORIG_$v=__unset__; fi"
+done
+
+export PYTHONHOME="$HERE/usr"
+export PYTHONPATH="$HERE/usr/lib/lastpass-gtk:$HERE/usr/lib/python3/dist-packages"
+export PYTHONDONTWRITEBYTECODE=1
+export PATH="$HERE/usr/bin:$PATH"
+export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0"
+export GSETTINGS_SCHEMA_DIR="$HERE/usr/share/glib-2.0/schemas"
+export GIO_MODULE_DIR="$HERE/usr/lib/gio/modules"
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# gdk-pixbuf's loader cache needs absolute paths, and our mount point changes per run.
+rundir="${XDG_RUNTIME_DIR:-/tmp}"
+for old in "$rundir"/lastpass-gtk-pixbuf-*.cache; do        # clean up after dead instances
+    [ -e "$old" ] || continue
+    pid="${old##*-}"; pid="${pid%.cache}"
+    [ -d "/proc/$pid" ] || rm -f "$old"
+done
+cache="$rundir/lastpass-gtk-pixbuf-$$.cache"
+sed "s|@APPDIR@|$HERE|g" "$HERE/usr/lib/gdk-pixbuf-2.0/loaders.cache.in" > "$cache"
+export GDK_PIXBUF_MODULE_FILE="$cache"
+
+# Prefer the host's Vulkan loader and Wayland client libs (they must match its GPU
+# drivers); only link in our fallback copies for the ones this host doesn't have.
+fb="$rundir/lastpass-gtk-libs-$$"
+for old in "$rundir"/lastpass-gtk-libs-*; do
+    [ -e "$old" ] || continue
+    [ -d "/proc/${old##*-}" ] || rm -rf "$old"
+done
+for lib in "$HERE"/usr/lib/fallback/*.so.*; do
+    name="${lib##*/}"
+    found=""
+    for d in /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /lib64 \
+             /lib/x86_64-linux-gnu /usr/lib; do
+        if [ -e "$d/$name" ]; then found=1; break; fi
+    done
+    if [ -z "$found" ]; then mkdir -p "$fb" && ln -sf "$lib" "$fb/$name"; fi
+done
+[ -d "$fb" ] && export LD_LIBRARY_PATH="$fb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# The bundled libcurl was built for Debian's CA path; use whichever bundle this host has.
+for ca in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt \
+          /etc/ssl/ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+          /etc/ssl/cert.pem; do
+    if [ -r "$ca" ]; then export CURL_CA_BUNDLE="$ca"; break; fi
+done
+
+exec "$HERE/usr/bin/python3" -P -m lastpass_gtk "$@"   # exec keeps $$, matching the cache name
