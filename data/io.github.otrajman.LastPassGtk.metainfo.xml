@@ -21,6 +21,12 @@
   <url type="bugtracker">https://github.com/otrajman/lastpass-gtk/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.1" date="2026-11-10">
+      <description>
+        <p>Maintenance release: updated bundled libraries (libxml2 2.15.4 and the latest
+        Ubuntu 24.04 security updates for OpenSSL, libcurl and GTK) and CI actions.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-10"/>
   </releases>
 </component>

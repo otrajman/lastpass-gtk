@@ -3,10 +3,10 @@
 # so packaged binaries don't depend on the distro's libxml2 soname (.so.2 vs .so.16).
 #   scripts/build-libxml2.sh PREFIX
 set -eu
-VERSION=2.13.9
-SHA256=a2c9ae7b770da34860050c309f903221c67830c86e4a7e760692b803df95143a
+VERSION=2.15.4
+SHA256=98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821
 prefix="$1"
-[ -f "$prefix/lib/libxml2.a" ] && exit 0
+[ -f "$prefix/lib/libxml2.a" ] && [ "$(cat "$prefix/.version" 2>/dev/null)" = "$VERSION" ] && exit 0
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 url="https://download.gnome.org/sources/libxml2/${VERSION%.*}/libxml2-$VERSION.tar.xz"
@@ -20,4 +20,5 @@ cd "$work/libxml2-$VERSION"
     --without-ftp --without-debug --without-history --without-readline >/dev/null
 make -s -j"$(nproc)" >/dev/null 2>&1
 make -s install >/dev/null
+echo "$VERSION" > "$prefix/.version"
 echo "static libxml2 $VERSION -> $prefix"

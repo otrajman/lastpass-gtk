@@ -1,0 +1,11 @@
+# Weekly PRs for new versions of the CI actions and the pinned lastpass-cli submodule.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly

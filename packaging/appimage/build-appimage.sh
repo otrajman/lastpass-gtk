@@ -17,7 +17,7 @@ out="$root/dist"
 sys_lib="/usr/lib/$triplet"
 mkdir -p "$out" "$work"
 
-[ -x build/lpass-static/lpass ] || STATIC_LIBXML2=1 scripts/build-lpass.sh build/lpass-static
+STATIC_LIBXML2=1 scripts/build-lpass.sh build/lpass-static  # always rebuild: never ship a stale lpass
 
 rm -rf "$app"
 mkdir -p "$app/usr/bin" "$app/usr/lib/lastpass-gtk/libexec" "$app/usr/lib/python3/dist-packages" \

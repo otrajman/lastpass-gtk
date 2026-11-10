@@ -10,7 +10,7 @@ appid=io.github.otrajman.LastPassGtk
 stage="$root/build/deb/stage"
 out="$root/dist"
 
-[ -x build/lpass-static/lpass ] || STATIC_LIBXML2=1 scripts/build-lpass.sh build/lpass-static
+STATIC_LIBXML2=1 scripts/build-lpass.sh build/lpass-static  # always rebuild: never ship a stale lpass
 
 rm -rf "$stage"
 mkdir -p "$stage/DEBIAN" "$stage/usr/bin" "$stage/usr/lib/lastpass-gtk/libexec" \

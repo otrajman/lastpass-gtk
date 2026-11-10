@@ -24,7 +24,7 @@ from .lpass import Detail, Entry, Lpass, LpassError, build_template  # noqa: E40
 
 APP_ID = "io.github.otrajman.LastPassGtk"
 APP_NAME = "LastPass GTK"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 CLIPBOARD_CLEAR_SECONDS = 30
 STATE_FILE = Path(GLib.get_user_config_dir()) / "lastpass-gtk" / "state.json"
 SECRET_FIELD = re.compile(r"pass|pin|secret|key|token|code|cvv|cvc|security", re.I)

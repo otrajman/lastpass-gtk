@@ -14,12 +14,12 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           submodules: recursive
 
       - name: Build container
-        run: docker build -t lastpass-gtk-build packaging
+        run: docker build --pull -t lastpass-gtk-build packaging  # --pull: latest patched base image
 
       - name: Tests (real lastpass-cli code against its mock server)
         run: |
@@ -32,7 +32,7 @@ jobs:
             sh -c 'packaging/deb/build-deb.sh && packaging/appimage/build-appimage.sh'
           (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: packages
           path: dist/*
