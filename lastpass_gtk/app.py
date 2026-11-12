@@ -21,10 +21,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .lpass import Detail, Entry, Lpass, LpassError, build_template  # noqa: E402
+from .staysignedin import KeyringStore, StaySignedIn  # noqa: E402
 
 APP_ID = "io.github.otrajman.LastPassGtk"
 APP_NAME = "LastPass GTK"
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 CLIPBOARD_CLEAR_SECONDS = 30
 STATE_FILE = Path(GLib.get_user_config_dir()) / "lastpass-gtk" / "state.json"
 SECRET_FIELD = re.compile(r"pass|pin|secret|key|token|code|cvv|cvc|security", re.I)
@@ -279,6 +280,8 @@ class Window(Adw.ApplicationWindow):
         self.current_detail: Optional[Detail] = None
         self._clip_serial = 0
         self.lp: Optional[Lpass] = None
+        self.stay = StaySignedIn(KeyringStore(), self.state)
+        self.keyring_available = False
 
         self.toasts = Adw.ToastOverlay()
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
@@ -289,6 +292,7 @@ class Window(Adw.ApplicationWindow):
         self.stack.add_named(self._build_loading(), "loading")
         self.stack.add_named(self._build_login(), "login")
         self.stack.add_named(self._build_vault(), "vault")
+        self.stack.add_named(self._build_locked(), "locked")
         self.error_page = Adw.StatusPage(icon_name="dialog-error-symbolic",
                                          title="lpass not found")
         self.stack.add_named(self.error_page, "error")
@@ -302,9 +306,14 @@ class Window(Adw.ApplicationWindow):
             self.error_page.set_description(str(e))
             self.stack.set_visible_child_name("error")
             return
+        self.lp.agent_timeout = self.stay.agent_timeout
+        self.lp.on_command_start = self.stay.begin_command
+        self.lp.on_command_success = self._on_command_success
         self.connect("close-request", self._on_close)
-        self.worker.submit(self.lp.status, self._after_status,
-                           lambda e: self._show_login())
+        self.worker.submit(self.stay.store.available, self._keyring_checked)
+        # A saved session only needs the master password (no MFA / email check), so
+        # open the vault directly; lpass reports when there's no session at all.
+        self._load_vault()
 
     # ---- pages ---------------------------------------------------------------
     def _build_loading(self):
@@ -326,8 +335,14 @@ class Window(Adw.ApplicationWindow):
         self.email_row.connect("entry-activated", self._do_login)
         self.trust_row = Adw.SwitchRow(title="Trust this device",
                                        subtitle="Skip multifactor on this computer for 30 days")
+        self.stay_row = Adw.SwitchRow(title="Stay signed in for 30 days",
+                                      subtitle="Remember your master password in the system keyring",
+                                      active=self.stay.active())
+        self.stay_row.connect("notify::active", self._sync_trust_row)
         group.add(self.email_row)
+        group.add(self.stay_row)
         group.add(self.trust_row)
+        self._sync_trust_row()
         box.append(group)
         self.login_btn = Gtk.Button(label="Log In", halign=Gtk.Align.CENTER)
         self.login_btn.add_css_class("pill")
@@ -344,6 +359,35 @@ class Window(Adw.ApplicationWindow):
         page.set_child(Adw.Clamp(maximum_size=420, child=box))
         tv.set_content(page)
         return tv
+
+    def _build_locked(self):
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar(show_title=False))
+        self.locked_page = Adw.StatusPage(icon_name="system-lock-screen-symbolic",
+                                          title="Vault Locked")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, halign=Gtk.Align.CENTER)
+        unlock = Gtk.Button(label="Unlock")
+        unlock.add_css_class("pill")
+        unlock.add_css_class("suggested-action")
+        unlock.connect("clicked", lambda *_: self._load_vault())
+        box.append(unlock)
+        other = Gtk.Button(label="Log Out…")
+        other.add_css_class("flat")
+        other.connect("clicked", lambda *_: self._confirm_logout())
+        box.append(other)
+        self.locked_page.set_child(box)
+        tv.set_content(self.locked_page)
+        return tv
+
+    def _show_locked(self, why: str = ""):
+        user = self.state.get("username", "")
+        self.locked_page.set_description(
+            why or (f"Enter the master password for {user} to continue." if user
+                    else "Enter your master password to continue."))
+        self.entries = []
+        self._populate()
+        self._show_placeholder()
+        self.stack.set_visible_child_name("locked")
 
     def _build_vault(self):
         self.split = Adw.NavigationSplitView(min_sidebar_width=300, max_sidebar_width=420,
@@ -368,6 +412,8 @@ class Window(Adw.ApplicationWindow):
         sec.append(f"About {APP_NAME}", "win.about")
         main_menu.append_section(None, sec)
         sec = Gio.Menu()
+        sec.append("Stay Signed In for 30 Days", "win.stay-signed-in")
+        sec.append("Lock", "win.lock")
         sec.append("Log Out", "win.logout")
         main_menu.append_section(None, sec)
         hb.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=main_menu,
@@ -437,6 +483,11 @@ class Window(Adw.ApplicationWindow):
         add("new-note", lambda: self._open_editor(is_note=True))
         add("sync", self._sync)
         add("logout", self._confirm_logout)
+        add("lock", self._lock)
+        self.act_stay = Gio.SimpleAction.new_stateful(
+            "stay-signed-in", None, GLib.Variant.new_boolean(self.stay.active()))
+        self.act_stay.connect("change-state", self._on_stay_toggled)
+        self.add_action(self.act_stay)
         add("about", self._about)
         add("search", self._focus_search)
         self.act_edit = add("edit", self._edit_current)
@@ -452,7 +503,7 @@ class Window(Adw.ApplicationWindow):
         for action, accels in {
             "win.search": ["<Ctrl>f"], "win.new-site": ["<Ctrl>n"],
             "win.new-note": ["<Ctrl><Shift>n"], "win.sync": ["<Ctrl>r", "F5"],
-            "win.edit": ["<Ctrl>e"], "win.copy-password": ["<Ctrl><Shift>c"],
+            "win.edit": ["<Ctrl>e"], "win.lock": ["<Ctrl>l"], "win.copy-password": ["<Ctrl><Shift>c"],
             "win.copy-username": ["<Ctrl>b"], "win.open-url": ["<Ctrl>u"],
             "win.show-help-overlay": ["<Ctrl>question"],
             "app.quit": ["<Ctrl>q"],
@@ -487,6 +538,9 @@ class Window(Adw.ApplicationWindow):
 
     # ---- secret prompts from lpass (via askpass bridge) -----------------------
     def _prompt_from_thread(self, label: str, attempt: int = 1, error: str = "") -> Optional[str]:
+        stored = self.stay.answer(label, attempt)  # "stay signed in": unlock silently
+        if stored is not None:
+            return stored
         ev = threading.Event()
         box: dict = {}
         def show():
@@ -539,13 +593,62 @@ class Window(Adw.ApplicationWindow):
         entry.grab_focus()
         return False
 
-    # ---- login flow ------------------------------------------------------------
-    def _after_status(self, user: Optional[str]):
-        if user:
-            self.state["username"] = user
-            self._load_vault()
+    # ---- stay signed in / lock ----------------------------------------------------
+    def _keyring_checked(self, available: bool):
+        self.keyring_available = available
+        if not available:
+            sub = "No system keyring found: stays unlocked until you restart the computer"
+            self.stay_row.set_subtitle(sub)
+
+    def _sync_trust_row(self, *_):
+        # Staying signed in is pointless if every re-login needs multifactor again.
+        on = self.stay_row.get_active()
+        if on:
+            self.trust_row.set_active(True)
+        self.trust_row.set_sensitive(not on)
+
+    def _on_command_success(self, answers):
+        # runs on the worker thread after lpass accepted a typed master password
+        self.stay.command_succeeded(answers)
+        GLib.idle_add(lambda: (save_state(self.state), False)[1])
+
+    def _on_stay_toggled(self, action, value: GLib.Variant):
+        if value.get_boolean():
+            # Restart the agent so it gets the 30-day timeout, and capture the master
+            # password the user types to unlock it again.
+            self.stay.enable()
+            save_state(self.state)
+            action.set_state(value)
+            self.stay_row.set_active(True)
+            self.worker.submit(self.lp.lock, lambda _: self._reunlock_for_stay())
         else:
-            self._show_login()
+            self.stay.disable()
+            save_state(self.state)
+            action.set_state(value)
+            self.stay_row.set_active(False)
+            self.worker.submit(self.lp.lock, lambda _: self._show_locked(
+                "Stay signed in is off and your saved password was removed. "
+                "Enter your master password to continue."))
+
+    def _reunlock_for_stay(self):
+        def ok(entries):
+            self.entries = entries
+            self._populate(self.current.id if self.current else None)
+            self.toast("You'll stay signed in on this computer for 30 days")
+
+        def err(e):
+            self.stay.disable()
+            save_state(self.state)
+            self.act_stay.set_state(GLib.Variant.new_boolean(False))
+            self.stay_row.set_active(False)
+            self._show_locked("Stay signed in was not turned on.")
+        self.worker.submit(self.lp.list_entries, ok, err)
+
+    def _lock(self):
+        if self.stack.get_visible_child_name() != "vault":
+            return
+        self.stay.suspended = True  # don't unlock from the keyring until the user does
+        self.worker.submit(self.lp.lock, lambda _: self._show_locked())
 
     def _show_login(self):
         self.login_btn.set_sensitive(True)
@@ -560,10 +663,15 @@ class Window(Adw.ApplicationWindow):
             return
         self.email_row.remove_css_class("error")
         self.state["username"] = user
+        if self.stay_row.get_active():
+            self.stay.enable()
+        else:
+            self.stay.disable()
+        self.act_stay.set_state(GLib.Variant.new_boolean(self.stay.active()))
         save_state(self.state)
         self.login_btn.set_sensitive(False)
         self.login_status.set_visible(True)
-        trust = self.trust_row.get_active()
+        trust = self.trust_row.get_active() or self.stay_row.get_active()
 
         def fail(e):
             self.login_btn.set_sensitive(True)
@@ -581,6 +689,12 @@ class Window(Adw.ApplicationWindow):
         dlg.present(self)
 
     def _logout(self):
+        self.stay.disable()
+        self.stay.suspended = False
+        self.act_stay.set_state(GLib.Variant.new_boolean(False))
+        self.stay_row.set_active(False)
+        save_state(self.state)
+
         def done(_):
             self.entries = []
             self._populate()
@@ -602,9 +716,15 @@ class Window(Adw.ApplicationWindow):
                 self.toast(f"Synced — {len(entries)} items")
 
         def err(e):
-            if self.stack.get_visible_child_name() != "vault":
-                self._show_login()
-            self._error(e, "Could not load vault")
+            msg = getattr(e, "message", str(e)).lower()
+            if "decryption key" in msg or "not logged in" in msg:
+                self._show_login()          # no saved session: full login needed
+            elif isinstance(e, LpassError) and e.cancelled:
+                self._show_locked()         # user dismissed the unlock prompt
+            else:
+                if self.stack.get_visible_child_name() != "vault":
+                    self._show_login()
+                self._error(e, "Could not load vault")
         self.worker.submit(lambda: self.lp.list_entries(sync=sync), ok, err)
 
     def _sync(self):
@@ -1012,7 +1132,7 @@ class Window(Adw.ApplicationWindow):
             ("Ctrl+F", "Search"), ("Ctrl+N", "New site"), ("Ctrl+Shift+N", "New secure note"),
             ("Ctrl+E", "Edit item"), ("Ctrl+Shift+C", "Copy password"),
             ("Ctrl+B", "Copy username"), ("Ctrl+U", "Open website"),
-            ("Delete", "Delete item"), ("Ctrl+R / F5", "Sync"), ("Ctrl+Q", "Quit"),
+            ("Delete", "Delete item"), ("Ctrl+L", "Lock"), ("Ctrl+R / F5", "Sync"), ("Ctrl+Q", "Quit"),
         ]
         dlg = Adw.Dialog(title="Keyboard Shortcuts", content_width=380)
         tv = Adw.ToolbarView()

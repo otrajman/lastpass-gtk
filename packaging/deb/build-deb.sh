@@ -68,6 +68,7 @@ Architecture: $arch
 Maintainer: lastpass-gtk maintainers <otrajman@users.noreply.github.com>
 Installed-Size: $size
 Depends: $shlibs, python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5)
+Recommends: gir1.2-secret-1
 Section: utils
 Priority: optional
 Homepage: https://github.com/otrajman/lastpass-gtk

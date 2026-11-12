@@ -11,8 +11,10 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -171,10 +173,19 @@ class Lpass:
                  extra_env: dict[str, str] | None = None):
         self.binary = binary or find_lpass()
         self._attempts: dict[str, int] = {}
+        self._answers: list[tuple[str, str]] = []
+        self.command = ""  # the lpass subcommand currently running
+        # Optional hooks (used by "stay signed in"):
+        self.agent_timeout: Optional[Callable[[], int]] = None   # -> LPASS_AGENT_TIMEOUT
+        self.on_command_start: Optional[Callable[[str], None]] = None
+        self.on_command_success: Optional[Callable[[list[tuple[str, str]]], None]] = None
 
         def counted(prompt: str, error: str) -> Optional[str]:
             self._attempts[prompt] = self._attempts.get(prompt, 0) + 1
-            return prompt_handler(prompt, self._attempts[prompt], error)
+            answer = prompt_handler(prompt, self._attempts[prompt], error)
+            if answer is not None:
+                self._answers.append((prompt, answer))
+            return answer
         self.bridge = AskpassBridge(counted)
         askpass = Path(__file__).resolve().parent / "askpass.py"
         mode = askpass.stat().st_mode
@@ -197,13 +208,23 @@ class Lpass:
     # -- low level ---------------------------------------------------------
     def run(self, *args: str, stdin: str | None = None, binary_out: bool = False):
         self._attempts.clear()  # callers serialize lpass invocations
-        proc = subprocess.run(
-            [self.binary, *args],
-            input=stdin.encode() if stdin is not None else None,
-            stdin=None if stdin is not None else subprocess.DEVNULL,
-            capture_output=True,
-            env=self.env,
-        )
+        self._answers.clear()
+        self.command = args[0]
+        env = self.env
+        if self.agent_timeout:
+            env = {**env, "LPASS_AGENT_TIMEOUT": str(int(self.agent_timeout()))}
+        if self.on_command_start:
+            self.on_command_start(self.command)
+        try:
+            proc = subprocess.run(
+                [self.binary, *args],
+                input=stdin.encode() if stdin is not None else None,
+                stdin=None if stdin is not None else subprocess.DEVNULL,
+                capture_output=True,
+                env=env,
+            )
+        finally:
+            answers, self._answers = list(self._answers), []
         if proc.returncode != 0:
             err = proc.stderr.decode(errors="replace").strip()
             out = proc.stdout.decode(errors="replace").strip()
@@ -211,7 +232,43 @@ class Lpass:
             if msg.startswith("Error: "):
                 msg = msg[len("Error: "):]
             raise LpassError(msg, proc.returncode)
+        if self.on_command_success and answers:
+            self.on_command_success(answers)
         return proc.stdout if binary_out else proc.stdout.decode(errors="replace")
+
+    def agent_socket_path(self) -> str:
+        """Where lpass's agent listens (mirrors config_path() in lastpass-cli)."""
+        env = self.env
+        if env.get("LPASS_HOME"):
+            return os.path.join(env["LPASS_HOME"], "agent.sock")
+        if env.get("XDG_RUNTIME_DIR"):
+            return os.path.join(env["XDG_RUNTIME_DIR"], "lpass", "agent.sock")
+        return os.path.join(env.get("HOME", ""), ".lpass", "agent.sock")
+
+    def lock(self) -> bool:
+        """Stop the lpass agent so the next command needs the master password.
+
+        Like lastpass-cli's agent_kill(): find the agent's pid from the socket's peer
+        credentials and SIGTERM it. Returns True if an agent was stopped.
+        """
+        path = self.agent_socket_path()
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.connect(path)
+                pid, uid, _gid = struct.unpack("3i", s.getsockopt(
+                    socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
+        except OSError:
+            return False
+        if uid != os.getuid() or pid <= 1:
+            return False
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                if b"lpass" not in f.read():
+                    return False
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return False
+        return True
 
     # -- session -----------------------------------------------------------
     def status(self) -> Optional[str]:

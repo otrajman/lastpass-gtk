@@ -28,7 +28,7 @@ jobs:
       - name: Tests (real lastpass-cli code against its mock server)
         run: |
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src lastpass-gtk-build \
-            sh -c 'LPASS_TEST=1 scripts/build-lpass.sh build/lpass-ci && python3 -m unittest -v tests/test_lpass.py'
+            sh -c 'LPASS_TEST=1 scripts/build-lpass.sh build/lpass-ci && python3 -m unittest discover -v -s tests -t .'
 
       - name: Build .deb and AppImage
         run: |

@@ -28,6 +28,8 @@ Grab the latest files from [Releases](../../releases):
 ## Features
 
 - Log in with master password, multifactor code, or push approval, with an optional "trust this device" setting. If LastPass rejects a login, the app shows the server's reason, such as an email verification request.
+- **Stay signed in for 30 days** (optional; see [below](#stay-signed-in)). Without it, reopening the app after the 1-hour unlock timeout only asks for your master password, not a full login.
+- **Lock** (Ctrl+L) at any time
 - Search the vault (by name, folder, username, or URL) and filter by sites, secure notes, or folder
 - View items: reveal or copy the password, copy the username, open the website, and see secure-note fields (Server, Database, …) and notes
 - Copying puts the value on the clipboard and clears it after 30 s
@@ -36,7 +38,7 @@ Grab the latest files from [Releases](../../releases):
 - Adaptive layout that collapses to a single pane on narrow windows
 
 **Keyboard shortcuts:** Ctrl+F search · Ctrl+N new site · Ctrl+Shift+N new note ·
-Ctrl+E edit · Ctrl+Shift+C copy password · Ctrl+B copy username · Ctrl+U open website ·
+Ctrl+E edit · Ctrl+L lock · Ctrl+Shift+C copy password · Ctrl+B copy username · Ctrl+U open website ·
 Delete (in the list) delete · Ctrl+R / F5 sync · Ctrl+Q quit
 
 ## How it works
@@ -56,6 +58,28 @@ GTK UI (app.py) ──► lpass.py ──subprocess──► lpass (lastpass-cli
   default; `LPASS_AGENT_TIMEOUT`). After that, the next action asks for the master password again.
 - Edits use `lpass edit/add --non-interactive` with the same template `lpass`
   writes for `$EDITOR`. No temp files are created.
+
+### Stay signed in
+
+lastpass-cli keeps your encrypted vault and session on disk, but the key that decrypts it
+lives in a background agent that exits after an hour and on every reboot. Turning on
+**Stay signed in for 30 days** (on the login screen or in the main menu):
+
+- keeps the agent unlocked until the 30 days end, instead of 1 hour;
+- stores your master password in the **system keyring** (GNOME Keyring, KWallet, or any
+  Secret Service provider). It's encrypted with your login password and unlocked when you
+  log in to your computer. The app uses it to unlock silently after a reboot or restart.
+  Nothing is written to disk in plaintext;
+- turns on "trust this device", so re-logins don't need multifactor.
+
+Items marked "require master password" still ask you every time; the saved password is
+never used for them. **Lock**, **turning the option off**, **logging out**, and the end of
+the 30 days all remove the saved password and stop the agent. Without a keyring service,
+the option still keeps you unlocked until you restart the computer.
+
+Trade-off: while you're logged in to your computer, other programs running as you can read
+your keyring. That's the same exposure as the unlocked `lpass` agent itself, but it also
+survives reboots. Leave the option off on shared or untrusted machines.
 
 ### Patches to lastpass-cli
 

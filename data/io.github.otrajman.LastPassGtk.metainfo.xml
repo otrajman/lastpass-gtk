@@ -21,6 +21,14 @@
   <url type="bugtracker">https://github.com/otrajman/lastpass-gtk/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-11-12">
+      <description>
+        <p>Optional "Stay signed in for 30 days": keeps the vault unlocked and remembers
+        the master password in the system keyring. New Lock command (Ctrl+L). Reopening the
+        app after the unlock timeout now only asks for the master password instead of a
+        full login.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-11-10">
       <description>
         <p>Maintenance release: updated bundled libraries (libxml2 2.15.4 and the latest

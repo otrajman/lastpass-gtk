@@ -15,7 +15,7 @@ lpass:
 # unit tests + integration tests against lastpass-cli's mock server (in the build container)
 test: image
 	$(RUN) sh -c 'LPASS_TEST=1 scripts/build-lpass.sh build/lpass-ci >/dev/null && \
-	  python3 -m unittest -v tests/test_lpass.py'
+	  python3 -m unittest discover -v -s tests -t .'
 
 image:
 	$(DOCKER) build -t $(IMAGE) packaging
